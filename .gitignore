@@ -35,7 +35,7 @@ vendor/
 *.manifest
 #*.spec
 pyinstaller/
-pynsist_pkgs/
+pynsist_pkgs
 
 # Installer logs
 pip-log.txt
