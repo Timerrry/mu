@@ -25,6 +25,7 @@ var/
 .installed.cfg
 *.egg
 
+
 # Bluemix vendored packages
 vendor/
 
@@ -34,6 +35,7 @@ vendor/
 *.manifest
 #*.spec
 pyinstaller/
+pynsist_pkgs/
 
 # Installer logs
 pip-log.txt
@@ -77,3 +79,7 @@ target/
 
 # Movie
 *.mp4
+
+#打包文件
+pynsist_tkinter_3.6_32bit.zip
+pynsist_tkinter_3.6_64bit.zip
