@@ -35,7 +35,7 @@ vendor/
 *.manifest
 #*.spec
 pyinstaller/
-pynsist_pkgs
+/pynsist_pkgs
 
 # Installer logs
 pip-log.txt
@@ -81,5 +81,4 @@ target/
 *.mp4
 
 #打包文件
-pynsist_tkinter_3.6_32bit.zip
-pynsist_tkinter_3.6_64bit.zip
+*.zip
