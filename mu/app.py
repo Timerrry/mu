@@ -33,7 +33,7 @@ from mu import __version__, language_code
 from mu.logic import Editor, LOG_FILE, LOG_DIR, DEBUGGER_PORT, ENCODING
 from mu.interface import Window
 from mu.resources import load_pixmap, load_icon
-from mu.modes import (PythonMode, AdafruitMode, MicrobitMode, DebugMode,
+from mu.modes import (PythonMode, AdafruitMode, MicrobitMode, DebugMode,EspMode,
                       PyGameZeroMode)
 from mu.debugger.runner import run as run_debugger
 from mu.interface.themes import NIGHT_STYLE, DAY_STYLE, CONTRAST_STYLE
@@ -65,6 +65,7 @@ def setup_logging():
     sys.excepthook = excepthook
 
 
+
 def setup_modes(editor, view):
     """
     Create a simple dictionary to hold instances of the available modes.
@@ -74,14 +75,18 @@ def setup_modes(editor, view):
     """
     modes = {
         'python': PythonMode(editor, view),
-        'adafruit': AdafruitMode(editor, view),
-        'microbit': MicrobitMode(editor, view),
-        'debugger': DebugMode(editor, view),
+        #'adafruit': AdafruitMode(editor, view),
+        #'microbit': MicrobitMode(editor, view),
+        'mPython': EspMode(editor, view),
+        #'debugger': DebugMode(editor, view),
     }
+    print("test")
 
+    '''
     # Check if pgzero is available (without importing it)
     if any([m for m in pkgutil.iter_modules() if 'pgzero' in m]):
         modes['pygamezero'] = PyGameZeroMode(editor, view)
+    '''
 
     # return available modes
     return modes
@@ -154,6 +159,8 @@ def run():
     status_bar = editor_window.status_bar
     status_bar.connect_logs(editor.show_admin, 'Ctrl+Shift+D')
 
+    '''
+    #删除启动log
     # Display a friendly "splash" icon.
     splash = QSplashScreen(load_pixmap('splash-screen'))
     splash.show()
@@ -163,6 +170,7 @@ def run():
     splash_be_gone.timeout.connect(lambda: splash.finish(editor_window))
     splash_be_gone.setSingleShot(True)
     splash_be_gone.start(2000)
+    '''
 
     # Stop the program after the application finishes executing.
     sys.exit(app.exec_())

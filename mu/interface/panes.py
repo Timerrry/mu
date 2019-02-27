@@ -26,6 +26,7 @@ import signal
 import string
 import bisect
 import os.path
+import configparser
 from PyQt5.QtCore import (Qt, QProcess, QProcessEnvironment, pyqtSignal,
                           QTimer, QUrl)
 from collections import deque
@@ -37,6 +38,7 @@ from PyQt5.QtGui import (QKeySequence, QTextCursor, QCursor, QPainter,
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
 from mu.interface.themes import Font
 from mu.interface.themes import DEFAULT_FONT_SIZE
+from mu.interface.dialogs import PutPyFileDialog    #新加的
 
 
 logger = logging.getLogger(__name__)
@@ -376,6 +378,212 @@ class MicrobitFileList(MuFileList):
         self.set_message.emit(msg)
         self.list_files.emit()
 
+class EspFileList(MuFileList):
+    """
+    Represents a list of files on the mPython Board.
+    """
+
+    put = pyqtSignal(str)
+    delete = pyqtSignal(str)
+    run_py = pyqtSignal(str)
+    run_content = pyqtSignal(str)
+    load_py = pyqtSignal(str,str)
+    stop_run_py = pyqtSignal()
+    write_lib = pyqtSignal(str)
+    set_default = pyqtSignal(str)
+    rename = pyqtSignal(str,str)
+    reset_firmware = pyqtSignal(str)
+
+    def __init__(self, home):
+        super().__init__()
+        self.home = home
+        self.setDragDropMode(QListWidget.DragDrop)
+
+    def dropEvent(self, event):
+        source = event.source()
+        if isinstance(source, LocalFileList):
+            file_exists = self.findItems(source.currentItem().text(),
+                                         Qt.MatchExactly)
+            if not file_exists or \
+                    file_exists and self.show_confirm_overwrite_dialog():
+                self.disable.emit()
+                local_filename = os.path.join(self.home,
+                                              source.currentItem().text())
+                msg = _("Copying '{}' to mPython board.").format(local_filename)
+                logger.info(msg)
+                self.set_message.emit(msg)
+                self.put.emit(local_filename)
+
+    def on_put(self, esp_file):
+        """
+        Fired when the put event is completed for the given filename.
+        """
+        msg = _("'{}' successfully copied to mPython board, please wait for the list to refresh.").format(esp_file)
+        self.set_message.emit(msg)
+        self.list_files.emit()
+        if esp_file.lower().endswith('.py'):
+            config_dir = os.path.join(self.home, '__config__')
+            ini_path = os.path.join(config_dir, 'mpython.ini')
+            download_run = "1"
+            if os.path.isfile(ini_path):
+                cf = configparser.ConfigParser()
+                cf.read(ini_path)
+                if cf.has_section("common"):
+                    try:
+                        download_run = cf.get("common","downloadrun")
+                    except Exception as ex:
+                        print(ex)
+            if download_run == "1":
+                dialog = PutPyFileDialog(self)
+                dialog.setup(esp_file, config_dir)
+                if dialog.exec_():
+                    self.run_py.emit(esp_file)
+
+    def on_run_content(self, content):
+        """
+        Running in ESP32 memory.
+        """
+        msg = _("Running in real time ...")
+        self.set_message.emit(msg)
+        self.run_content.emit(content)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)        
+        if self.currentItem() == None:
+            write_lib_action = menu.addAction(_("Flash basic library (mpython.py)"))
+            restore_action = menu.addAction(_("Recovery firmware (cannot be undone)"))
+            action = menu.exec_(self.mapToGlobal(event.pos()))
+            if action == write_lib_action:
+                self.write_lib.emit(self.home)
+            elif action == restore_action:
+                mess = QMessageBox(self)
+                mess.setIcon(QMessageBox.Information)
+                mess.setText(_("Restoring to the original firmware will lose all "
+                               "personal files. This operation is irreversible. "
+                               "Press 'OK' to continue?"))
+                mess.setWindowTitle(_("mPython2"))
+                mess.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+                if mess.exec_() == QMessageBox.Ok:
+                    self.reset_firmware.emit(self.home) 
+            return
+        load_action = menu.addAction(_("Open in Mu"))
+        run_action = menu.addAction(_("Run selected file"))
+        stop_action = menu.addAction(_("Stop running"))
+        write_lib_action = menu.addAction(_("Flash basic library (mpython.py)"))
+        setdft_action = menu.addAction(_("Run by default"))
+        rename_action = menu.addAction(_("Rename"))
+        restore_action = menu.addAction(_("Recovery firmware (cannot be undone)"))
+        delete_action = menu.addAction(_("Delete (cannot be undone)"))
+        action = menu.exec_(self.mapToGlobal(event.pos()))
+        no_file_found = False
+        if action == load_action:
+            if self.currentItem() is not None:
+                esp_filename = self.currentItem().text()
+                self.load_py.emit(esp_filename, self.home)
+            else:
+                no_file_found = True
+        elif action == delete_action:
+            if self.currentItem() is not None:
+                self.disable.emit()
+                esp_filename = self.currentItem().text()
+                logger.info("Deleting {}".format(esp_filename))
+                msg = _("Deleting '{}' from mPython board.").format(esp_filename)
+                logger.info(msg)
+                self.set_message.emit(msg)
+                self.delete.emit(esp_filename)
+            else:
+                no_file_found = True
+        elif action == run_action:
+            if self.currentItem() is not None:
+                esp_filename = self.currentItem().text()
+                if not esp_filename.lower().endswith('.py'):
+                    msg = _('Only Python file can be run.')
+                    self.set_message.emit(msg)
+                else:
+                    self.run_py.emit(esp_filename)
+            else:
+                no_file_found = True
+        elif action == stop_action:
+            self.stop_run_py.emit()
+        elif action == write_lib_action:
+            self.write_lib.emit(self.home)
+        elif action == setdft_action:
+            if self.currentItem() is not None:
+                esp_filename = self.currentItem().text()
+                if not esp_filename.lower().endswith('.py'):
+                    msg = _('Only Python file can be set to run by default.')
+                    self.set_message.emit(msg)
+                elif "main.py" == esp_filename.lower():
+                    msg = _("'{}' no need to operate.").format("main.py")
+                    self.set_message.emit(msg)
+                elif "boot.py" == esp_filename.lower():
+                    msg = _("'{}' no need to operate.").format("boot.py")
+                    self.set_message.emit(msg)
+                elif "mpython.py" == esp_filename.lower():
+                    msg = _("'{}' no need to operate.").format("mpython.py")
+                    self.set_message.emit(msg)
+                else:
+                    self.set_default.emit(esp_filename)
+            else:
+                no_file_found = True
+        elif action == rename_action:
+            esp_filename = self.currentItem().text()
+            name, okPressed = QInputDialog.getText(self, _('mPython2'),
+                _('Rename to new name:'),
+                QLineEdit.Normal, esp_filename)
+            if okPressed and (len(name)!=0) and (esp_filename != name):
+                self.rename.emit(esp_filename, name)
+                #print(name)
+        elif action == restore_action:
+            mess = QMessageBox(self)
+            mess.setIcon(QMessageBox.Information)
+            mess.setText(_("Restoring to the original firmware will lose all "
+                           "personal files. This operation is irreversible. "
+                           "Press 'OK' to continue?"))
+            mess.setWindowTitle(_("mPython2"))
+            mess.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+            if mess.exec_() == QMessageBox.Ok:
+                self.reset_firmware.emit(self.home)           
+        if no_file_found is True:
+            msg = _('No file selected.')
+            self.set_message.emit(msg)
+
+    def on_delete(self, esp_file):
+        """
+        Fired when the delete event is completed for the given filename.
+        """
+        msg = _("'{}' successfully deleted from mPython board, please wait for"
+                " the list to refresh.").format(esp_file)
+        self.set_message.emit(msg)
+        self.list_files.emit()
+
+    def on_load(self, esp_file):
+        """
+        Fired when the open event is completed for the given filename.
+        """
+        msg = _("'{}' successfully opened from mPython board.").format(esp_file)
+        self.set_message.emit(msg)
+
+    def on_run(self, esp_file):
+        msg = _("Running '{}' from mPython board.").format(esp_file)
+        self.set_message.emit(msg)
+        
+    def on_set_default(self, esp_file):
+        msg = _("'{}' has been set as the default running program.").format(esp_file)
+        self.set_message.emit(msg)
+
+    def on_write_lib(self):
+        msg = _("The basic library has been written to mPython board, please wait for the list to refresh.")
+        self.set_message.emit(msg)
+        self.list_files.emit()
+
+    def on_rename(self, esp_filename, new_name):
+        msg = _("The file '{}' has been renamed to '{}', please wait for the"
+                " list to refresh.").format(esp_filename, new_name)
+        self.set_message.emit(msg)
+        self.list_files.emit()
+
+
 
 class LocalFileList(MuFileList):
     """
@@ -384,6 +592,7 @@ class LocalFileList(MuFileList):
 
     get = pyqtSignal(str, str)
     open_file = pyqtSignal(str)
+    delete = pyqtSignal(str)
 
     def __init__(self, home):
         super().__init__()
@@ -407,6 +616,21 @@ class LocalFileList(MuFileList):
                 logger.info(msg)
                 self.set_message.emit(msg)
                 self.get.emit(microbit_filename, local_filename)
+        elif isinstance(source, EspFileList):
+            file_exists = self.findItems(source.currentItem().text(),
+                                         Qt.MatchExactly)
+            if not file_exists or \
+                    file_exists and self.show_confirm_overwrite_dialog():
+                self.disable.emit()
+                microbit_filename = source.currentItem().text()
+                local_filename = os.path.join(self.home,
+                                              microbit_filename)
+                msg = _("Getting '{}' from mPython board. "
+                        "Copying to '{}'.").format(microbit_filename,
+                                                   local_filename)
+                logger.info(msg)
+                self.set_message.emit(msg)
+                self.get.emit(microbit_filename, local_filename)
 
     def on_get(self, microbit_file):
         """
@@ -414,6 +638,18 @@ class LocalFileList(MuFileList):
         """
         msg = _("Successfully copied '{}' "
                 "from the micro:bit to your computer.").format(microbit_file)
+        self.set_message.emit(msg)
+        self.list_files.emit()
+
+    def on_load_py(self, local_file):
+        filename = os.path.basename(local_file)
+        msg = _("Successfully loaded '{}' from the board.").format(filename)
+        self.set_message.emit(msg)
+        self.open_file.emit(local_file)
+        self.list_files.emit()
+        
+    def on_delete(self, local_file):
+        msg = _("Successfully move file: '{}' to your trash.").format(local_file)
         self.set_message.emit(msg)
         self.list_files.emit()
 
@@ -457,6 +693,7 @@ class FileSystemPane(QFrame):
     set_warning = pyqtSignal(str)
     list_files = pyqtSignal()
     open_file = pyqtSignal(str)
+
 
     def __init__(self, home):
         super().__init__()
@@ -587,6 +824,219 @@ class FileSystemPane(QFrame):
         self.microbit_fs.setFont(self.font)
         self.local_fs.setFont(self.font)
 
+    def set_zoom(self, size):
+        """
+        Set the current zoom level given the "t-shirt" size.
+        """
+        self.set_font_size(PANE_ZOOM_SIZES[size])
+
+class EspFileSystemPane(QFrame):
+    """
+    Contains two QListWidgets representing the mPython and the user's code
+    directory. Users transfer files by dragging and dropping. Highlighted files
+    can be selected for deletion.
+    """
+
+    set_message = pyqtSignal(str, int)
+    set_warning = pyqtSignal(str)
+    list_files = pyqtSignal()
+    open_file = pyqtSignal(str)
+
+    def __init__(self, home):
+        super().__init__()
+        self.home = home
+        self.font = Font().load()
+        esp_fs = EspFileList(home)
+        local_fs = LocalFileList(home)
+
+        @local_fs.open_file.connect
+        def on_open_file(file):
+            # Bubble the signal up
+            self.open_file.emit(file)
+
+        layout = QGridLayout()
+        self.setLayout(layout)
+        esp_label = QLabel()
+        esp_label.setText(_('Files on your mPython board:'))
+        local_label = QLabel()
+        local_label.setText(_('Files on your computer:'))
+        self.esp_label = esp_label
+        self.local_label = local_label
+        self.esp_fs = esp_fs
+        self.local_fs = local_fs
+        self.set_font_size()
+        layout.addWidget(esp_label, 0, 0)
+        layout.addWidget(local_label, 0, 1)
+        layout.addWidget(esp_fs, 1, 0)
+        layout.addWidget(local_fs, 1, 1)
+        self.esp_fs.disable.connect(self.disable)
+        self.esp_fs.set_message.connect(self.show_message)
+        self.local_fs.disable.connect(self.disable)
+        self.local_fs.set_message.connect(self.show_message)
+
+    def disable(self):
+        """
+        Stops interaction with the list widgets.
+        """
+        self.esp_fs.setDisabled(True)
+        self.local_fs.setDisabled(True)
+        self.esp_fs.setAcceptDrops(False)
+        self.local_fs.setAcceptDrops(False)
+
+    def enable(self):
+        """
+        Allows interaction with the list widgets.
+        """
+        self.esp_fs.setDisabled(False)
+        self.local_fs.setDisabled(False)
+        self.esp_fs.setAcceptDrops(True)
+        self.local_fs.setAcceptDrops(True)
+
+    def show_message(self, message, sec=2):
+        """
+        Emits the set_message signal.
+        """
+        self.set_message.emit(message, sec)
+
+    def show_warning(self, message):
+        """
+        Emits the set_warning signal.
+        """
+        self.set_warning.emit(message)
+
+    def on_ls(self, esp_files, dft_file):
+        """
+        Displays a list of the files on the micro:bit.
+
+        Since listing files is always the final event in any interaction
+        between Mu and the micro:bit, this enables the controls again for
+        further interactions to take place.
+        """
+        self.esp_fs.clear()
+        self.local_fs.clear()
+        if "main.py" in esp_files:
+            self.esp_fs.addItem("main.py")
+        if "boot.py" in esp_files:
+            self.esp_fs.addItem("boot.py")
+        for f in esp_files:
+            if "main.py" != f and "boot.py" != f and f.find(".") > 0:
+                #if f == dft_file:
+                #    new_item = QListWidgetItem(dft_file, self.esp_fs)
+                #    new_item.setForeground(QBrush(QColor(51,102,153)))
+                #else:
+                self.esp_fs.addItem(f)
+                
+        local_files = [f for f in os.listdir(self.home)
+                       if os.path.isfile(os.path.join(self.home, f))]
+        local_files.sort()
+        for f in local_files:
+            self.local_fs.addItem(f)
+        self.enable()
+
+    def on_ls_fail(self):
+        """
+        Fired when listing files fails.
+        """
+        self.show_warning(_("There was a problem getting the list of files on "
+                            "the mPython board. Please check Mu's logs for "
+                            "technical information. Alternatively, try "
+                            "unplugging/plugging-in your mPython board and/or "
+                            "restarting Mu."))
+        # self.disable()
+
+    def on_put_fail(self, filename):
+        """
+        Fired when the referenced file cannot be copied onto the micro:bit.
+        """
+        self.show_warning(_("There was a problem copying the file '{}' onto "
+                            "the mPython board. Please check Mu's logs for "
+                            "more information.").format(filename))
+        self.enable()
+
+    def on_load_start(self, filename):
+        self.show_message(_("Reading file '{}' from the mPython board ...").format(filename))
+        
+    def on_load_fail(self, error_txt):
+        """
+        Fired when the referenced file cannot be opened from the micro:bit.
+        """
+        self.show_message(_(error_txt))
+                            
+    def on_run_fail(self, error_txt):
+        """
+        Fired when the referenced file cannot be run on the micro:bit.
+        """
+        # self.show_message(_(error_txt))
+        self.show_warning(_(error_txt))
+
+    def on_info_start(self, info, sec):
+        """
+        Fired when the referenced file cannot be run on the micro:bit.
+        """
+        self.show_message(_(info), sec)
+                            
+    def on_set_default_fail(self, error_txt):
+        self.show_message(_(error_txt))
+
+    def on_write_lib_start(self):
+        self.show_message(_("Flashing to board ..."))
+
+    def on_write_lib_fail(self, error_txt):
+        self.show_message(_(error_txt))
+
+    def on_rename_start(self):
+        self.show_message(_("Ready to rename ..."))
+
+    def on_rename_fail(self, error_txt):
+        self.show_message(_(error_txt))
+
+    def on_delete_fail(self, filename):
+        """
+        Fired when a deletion on the micro:bit for the given file failed.
+        """
+        self.show_warning(_("There was a problem deleting '{}' from the "
+                            "mPython board. Please check Mu's logs for "
+                            "more information.").format(filename))
+
+    def on_get_fail(self, filename):
+        """
+        Fired when getting the referenced file on the micro:bit failed.
+        """
+        self.show_warning(_("There was a problem getting '{}' from the "
+                            "mPython board. Please check Mu's logs for "
+                            "more information.").format(filename))
+
+    def set_theme(self, theme):
+        pass
+
+    def set_font_size(self, new_size=DEFAULT_FONT_SIZE):
+        """
+        Sets the font size for all the textual elements in this pane.
+        """
+        self.font.setPointSize(new_size)
+        self.esp_label.setFont(self.font)
+        self.local_label.setFont(self.font)
+        self.esp_fs.setFont(self.font)
+        self.local_fs.setFont(self.font)
+
+    def zoomIn(self, delta=2):
+        """
+        Zoom in (increase) the size of the font by delta amount difference in
+        point size upto 34 points.
+        """
+        old_size = self.font.pointSize()
+        new_size = min(old_size + delta, 34)
+        self.set_font_size(new_size)
+
+    def zoomOut(self, delta=2):
+        """
+        Zoom out (decrease) the size of the font by delta amount difference in
+        point size down to 4 points.
+        """
+        old_size = self.font.pointSize()
+        new_size = max(old_size - delta, 4)
+        self.set_font_size(new_size)
+    
     def set_zoom(self, size):
         """
         Set the current zoom level given the "t-shirt" size.

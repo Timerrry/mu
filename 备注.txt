@@ -1,0 +1,7 @@
+使用make命令的方法：python make.py check
+
+make.cmd右键->在此处打开命令窗口，就可以make check等命令
+
+could not find simplegeneric  ==>pip install simplegeneric
+
+提示没有nsis时手动安装nsis

@@ -28,14 +28,13 @@ from PyQt5.QtWidgets import (QToolBar, QAction, QDesktopWidget, QWidget,
 from PyQt5.QtGui import QKeySequence, QStandardItemModel
 from PyQt5.QtSerialPort import QSerialPort
 from mu import __version__
-from mu.interface.dialogs import (ModeSelector, AdminDialog, FindReplaceDialog,
-                                  PackageDialog)
+from mu.interface.dialogs import (ModeSelector, AdminDialog, FindReplaceDialog,PackageDialog)
 from mu.interface.themes import (DayTheme, NightTheme, ContrastTheme,
                                  DEFAULT_FONT_SIZE)
 from mu.interface.panes import (DebugInspector, DebugInspectorItem,
                                 PythonProcessPane, JupyterREPLPane,
                                 MicroPythonREPLPane, FileSystemPane,
-                                PlotterPane)
+                                EspFileSystemPane,PlotterPane)
 from mu.interface.editor import EditorPane
 from mu.resources import load_icon, load_pixmap
 
@@ -422,6 +421,69 @@ class Window(QMainWindow):
         file_manager.on_get_fail.connect(self.fs_pane.on_get_fail)
         self.connect_zoom(self.fs_pane)
         return self.fs_pane
+
+    def add_filesystem_esp(self, home, file_manager):
+        """
+        Adds the file system pane to the application.
+        """
+        self.fs_pane = EspFileSystemPane(home)
+
+        @self.fs_pane.open_file.connect
+        def on_open_file(file):
+            # Bubble the signal up
+            self.open_file.emit(file)
+            
+        @self.fs_pane.local_fs.delete.connect
+        def on_delete_file(file):
+            send2trash.send2trash(file) 
+
+        self.fs = QDockWidget(_('Filesystem on mPython board'))
+        self.fs.setWidget(self.fs_pane)
+        self.fs.setFeatures(QDockWidget.DockWidgetMovable)
+        self.fs.setAllowedAreas(Qt.BottomDockWidgetArea)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.fs)
+        self.fs_pane.setFocus()
+        file_manager.on_list_files.connect(self.fs_pane.on_ls)
+        self.fs_pane.list_files.connect(file_manager.ls)
+        self.fs_pane.esp_fs.put.connect(file_manager.put)
+        self.fs_pane.esp_fs.load_py.connect(file_manager.load_py)
+        self.fs_pane.esp_fs.stop_run_py.connect(file_manager.stop_run_py)
+        self.fs_pane.esp_fs.run_py.connect(file_manager.run_py)
+        self.fs_pane.esp_fs.run_content.connect(file_manager.run_content)
+        self.fs_pane.esp_fs.write_lib.connect(file_manager.write_lib)
+        self.fs_pane.esp_fs.set_default.connect(file_manager.set_default)
+        self.fs_pane.esp_fs.rename.connect(file_manager.rename)
+        self.fs_pane.esp_fs.delete.connect(file_manager.delete)
+        self.fs_pane.esp_fs.list_files.connect(file_manager.ls)
+        self.fs_pane.esp_fs.reset_firmware.connect(file_manager.reset_firmware)
+        self.fs_pane.local_fs.get.connect(file_manager.get)
+        self.fs_pane.local_fs.list_files.connect(file_manager.ls)
+        file_manager.on_put_file.connect(self.fs_pane.esp_fs.on_put)
+        file_manager.on_run_content.connect(self.fs_pane.esp_fs.on_run_content)
+        file_manager.on_load_file.connect(self.fs_pane.esp_fs.on_load)
+        file_manager.on_run_file.connect(self.fs_pane.esp_fs.on_run)
+        file_manager.on_delete_file.connect(self.fs_pane.esp_fs.on_delete)
+        file_manager.on_get_file.connect(self.fs_pane.local_fs.on_get)
+        file_manager.on_load_py.connect(self.fs_pane.local_fs.on_load_py)
+        file_manager.on_list_fail.connect(self.fs_pane.on_ls_fail)
+        file_manager.on_put_fail.connect(self.fs_pane.on_put_fail)
+        file_manager.on_load_start.connect(self.fs_pane.on_load_start)
+        file_manager.on_load_fail.connect(self.fs_pane.on_load_fail)
+        file_manager.on_run_fail.connect(self.fs_pane.on_run_fail)
+        file_manager.on_delete_fail.connect(self.fs_pane.on_delete_fail)
+        file_manager.on_get_fail.connect(self.fs_pane.on_get_fail)
+        file_manager.on_set_default.connect(self.fs_pane.esp_fs.on_set_default)
+        file_manager.on_set_default_fail.connect(self.fs_pane.on_set_default_fail)
+        file_manager.on_write_lib_start.connect(self.fs_pane.on_write_lib_start)
+        file_manager.on_write_lib.connect(self.fs_pane.esp_fs.on_write_lib)
+        file_manager.on_write_lib_fail.connect(self.fs_pane.on_write_lib_fail)
+        file_manager.on_rename_start.connect(self.fs_pane.on_rename_start)
+        file_manager.on_rename.connect(self.fs_pane.esp_fs.on_rename)
+        file_manager.on_rename_fail.connect(self.fs_pane.on_rename_fail)
+        file_manager.on_info_start.connect(self.fs_pane.on_info_start)
+        self.connect_zoom(self.fs_pane)
+        return self.fs_pane
+
 
     def add_micropython_repl(self, port, name, force_interrupt=True):
         """

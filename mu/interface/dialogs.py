@@ -464,3 +464,47 @@ class PackageDialog(QDialog):
         cursor.insertText(msg)
         cursor.movePosition(QTextCursor.End)
         self.text_area.setTextCursor(cursor)
+
+#新加的
+class PutPyFileDialog(QDialog):
+    """
+    Defines a Dialog after put py file to mPython board.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def setup(self, _filename, _config_dir):
+        self.config_dir = _config_dir
+        self.setMinimumSize(360, 180)
+        self.setWindowTitle(_('mPython2'))
+        widget_layout = QVBoxLayout()
+        self.setLayout(widget_layout)
+        _info =_("The python file '{}' has been copied successfully, press 'OK' to run it?").format(_filename)
+        label = QLabel(_info)
+        label.setWordWrap(True)
+        widget_layout.addWidget(label)
+        cb = QCheckBox(_('Don\'t prompt me'), self)
+        cb.stateChanged.connect(self.change_param)
+        widget_layout.addWidget(cb)
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok |
+                                      QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        widget_layout.addWidget(button_box)
+
+    def set_downloadrun(self, _mark):
+        ini_path = os.path.join(self.config_dir, 'mpython.ini')
+        if os.path.isfile(ini_path):
+            cf = configparser.ConfigParser()
+            cf.read(ini_path)
+            if not cf.has_section("common"):
+                cf.add_section("common")
+            cf.set("common", "downloadrun", _mark)
+            cf.write(open(ini_path, "w"))
+
+    def change_param(self, _state):
+        if _state == Qt.Checked:
+            self.set_downloadrun("0")
+        else:
+            self.set_downloadrun("1")
+

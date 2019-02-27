@@ -522,7 +522,7 @@ def test_check_pycodestyle():
     """
     Ensure the expected result if generated from the PEP8 style validator.
     """
-    code = "import foo\n\n\n\n\n\ndef bar():\n    pass\n"  # Generate E303
+    code = "import foo\n\n\n\n\n\ndef bar():\npass\n"    # Generate E303
     result = mu.logic.check_pycodestyle(code)
     assert len(result) == 1
     assert result[6][0]['line_no'] == 6
