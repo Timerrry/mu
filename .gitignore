@@ -77,7 +77,7 @@ target/
 # OSX
 .DS_Store
 /.vs/slnx.sqlite
-
+/macOS
 # Movie
 *.mp4
 
